@@ -1,0 +1,846 @@
+---
+title: "Thesis"
+author: "Gabriel Rodríguez Molina"
+date: "2024-02-06"
+output: html_document
+---
+
+
+Loading Libraries for Text Processing and Data Manipulation in R
+```{r}
+library(pdftools)
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(tidytext)
+library(textreuse)
+library(stringr)
+library(tidyr)
+library(pdftools)
+library(tabulapdf)
+```
+
+
+## Objective 1: Leveraging Text Mining to Validate Stakeholder Influence Hypotheses
+
+# 1. Data Collection and Text Preprocessing
+```{r}
+# Read the text content from the two PDF files
+AI_fin <- pdf_text("Final_Draft_AIAct.pdf") # Final EU draft for AI Act
+AI_prop <- pdf_text("prop_AI-18-84.pdf") # First EU draft for AI Act
+
+# Split each document into individual sentences
+AI_prop_split <- lapply(AI_prop, function(x) unlist(strsplit(x, "\\.")))
+AI_fin_split <- lapply(AI_fin, function(x) unlist(strsplit(x, "\\.")))
+
+# Create a data frame with one row per sentence and add a source column
+AI_prop_df <- data.frame(text = unlist(AI_prop_split), source = "prop")
+AI_fin_df <- data.frame(text = unlist(AI_fin_split), source = "fin")
+
+# Combine the two data frames into one
+docs <- rbind(AI_prop_df, AI_fin_df)
+```
+
+# 2. Applying TF-IDF
+```{r}
+# Unnest the text into individual words, count the frequency of each word by source, and drop NA values
+unnest_eu <-
+  docs %>%
+  unnest_tokens(word, text) %>%        # Split the sentences into individual words
+  group_by(source) %>%                 # Group by the source column 
+  count(word, sort = TRUE) %>%         # Count the frequency of each word within each group
+  drop_na()                            # Drop any rows with NA values
+
+# Calculate total number of words 
+total_words <- 
+  unnest_eu %>%                        # Use the unnest_eu data frame
+  summarize(total = sum(n))            # Summarize the total counts of words
+
+# Join the word counts with the total words to prepare for tf-idf calculation
+words <- left_join(unnest_eu, total_words, by = "source") 
+
+# Calculate tf-idf for each word in each source
+eu_tfidf <- 
+  words %>%
+  bind_tf_idf(word, source, n)         # Calculate tf-idf for each word
+
+# Define a list of unwanted words to filter out
+unwanted_words <- c("s", "xx", "yyy", "__________", "dg", "diff", "fte", "eli")
+
+# Arrange the data frame by descending tf-idf values, and filter out unwanted words and numeric elements
+eu_tfidf <- eu_tfidf %>% 
+  arrange(desc(tf_idf)) %>%            # Arrange the data frame in descending order of tf-idf
+  filter(!grepl("^[0-9]+$", word)) %>% # Remove rows where the word is purely numeric
+  filter(!word %in% unwanted_words)    # Remove rows where the word is in the unwanted words list
+
+# Output
+eu_tfidf
+```
+
+# 3. Interpreting the specific usage and context of particular words within each document
+```{r}
+# We filter the proposal document data frame to find sentences containing the word selected
+AI_fin_df %>% 
+  filter(str_detect(text, "prospective")) # Locate and extract sentences in the final draft document that contain the word "office" 
+```
+
+# 4. Appplying TF-IDF for n-grams to reveal more complex patterns to capture changes between texts
+```{r}
+# Process bigrams: tokenize, filter, and separate into individual words
+bigrams_filter <- 
+  docs %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%     # Tokenize the text into bigrams 
+  filter(!is.na(bigram)) %>%                                   # Remove any NA values
+  separate(bigram, c("word1", "word2"), sep = " ") %>%         # Separate the bigram into two individual words
+  filter(!word1 %in% stop_words$word) %>%                      # Remove bigrams where the first word is a stop word
+  filter(!word2 %in% stop_words$word) %>%                      # Remove bigrams where the second word is a stop word
+  filter(!grepl(paste(unwanted_words, collapse = "|"), word1)) %>% # Filter out unwanted words from the first word
+  filter(!grepl(paste(unwanted_words, collapse = "|"), word2))    # Filter out unwanted words from the second word
+
+# Process trigrams: tokenize, filter, and separate into individual words
+trigrams_filter <- 
+  docs %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 3) %>%      
+  filter(!is.na(bigram)) %>%                                    
+  separate(bigram, c("word1", "word2", "word3"), sep = " ") %>% 
+  filter(!word1 %in% stop_words$word) %>%                       
+  filter(!word2 %in% stop_words$word) %>%                       
+  filter(!word3 %in% stop_words$word)                           
+
+# Process tetragrams: tokenize and separate into individual words
+tetragrams <- 
+  docs %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 4) %>%      
+  filter(!is.na(bigram)) %>%                                    
+  separate(bigram, c("word1", "word2", "word3", "word4"), sep = " ") 
+
+# Calculate tf-idf for bigrams
+bigram_tf_idf <- bigrams_filter %>%
+  unite(bigram, word1, word2, sep = " ") %>%                    # Unite the words back into bigrams
+  count(source, bigram) %>%                                     # Count the frequency of each bigram by source
+  bind_tf_idf(bigram, source, n) %>%                            # Calculate tf-idf for each bigram
+  arrange(desc(tf_idf)) %>%                                     # Arrange the bigrams by descending tf-idf values
+  filter(!str_detect(bigram, "\\d|en"))                         # Filter out bigrams containing digits or the word "en"
+
+# Calculate tf-idf for trigrams
+trigram_tf_idf <- trigrams_filter %>%
+  unite(trigram, word1, word2, word3, sep = " ") %>%            
+  count(source, trigram) %>%                                   
+  bind_tf_idf(trigram, source, n) %>%                          
+  arrange(desc(tf_idf)) %>%                                    
+  filter(!str_detect(trigram, "\\d|eli|__________|yyy"))     
+
+# Calculate tf-idf for tetragrams
+tetragram_tf_idf <- tetragrams %>%
+  unite(tetragram, word1, word2, word3, word4, sep = " ") %>%  
+  count(source, tetragram) %>%                                 
+  bind_tf_idf(tetragram, source, n) %>%                        
+  arrange(desc(tf_idf)) %>%                                    
+  filter(!str_detect(tetragram, "\\d|eli|en"))                 
+
+# Output the N-grams tf-idf results
+bigram_tf_idf
+trigram_tf_idf
+tetragram_tf_idf
+```
+
+
+## Objective 2: Employing the Smith-Waterman Algorithm to Detect Text Reuse in Legislative Amendments
+
+# 1. Pre-processing of Amended Texts 
+```{r}
+install.packages("tabulapdf", repos = c("https://ropensci.r-universe.dev", "https://cloud.r-project.org"))
+library(tabulapdf)
+
+# List of PDF filenames containing amendments
+pdf_files <- c(
+  "AMENDMENTS_310_538.pdf",
+  "AMENDMENTS_539_773.pdf",
+  "AMENDMENTS_774_1189.pdf",
+  "AMENDMENTS_1190_1580.pdf",
+  "AMENDMENTS_1581_2005.pdf",
+  "AMENDMENTS_2006_2355.pdf",
+  "AMENDMENTS_2356_2726.pdf",
+  "AMENDMENTS_2727_3019.pdf",
+  "AMENDMENTS_3020_3312.pdf"
+)
+
+# Function to split text based on the pattern "Amendment <number>". The patterns to detect and split between original and amended texts are different depending on whether it's a new text (amendments_no_num) or it's a fix over a previous text (amendments_num)
+
+split_text <- function(text) {
+  str_split(text, "(?=Amendment \\d+)", simplify = FALSE)[[1]] # Use regex to split text at "Amendment <number>"
+}
+
+# Initialize an empty list to store split texts from all PDFs
+amendments_list <- list()
+
+# Loop through each PDF file in the list
+for (file in pdf_files) {
+  # Extract text from the current PDF file
+  amend_text <- extract_text(file)
+  
+  # Split the extracted text based on the pattern "Amendment <number>"
+  amendments <- split_text(amend_text)
+  
+  # Append the split text to the amendments list
+  amendments_list <- c(amendments_list, amendments)
+}
+
+# Unlist the amendments list to get a single vector of amendments
+amendments_list <- amendments_list %>% unlist()
+
+
+
+# 1. Whenever the original text proposed by the European Commission is corrected by an amendment, both texts are a newline followed by a single digit,  letter in parentheses; amendments with numbers followed by a dot and space; or amendments with numbers followed by a dot and space. We exclude amendments with pairs of letters in parentheses.
+
+# We define a regex pattern to match a newline followed by a single digit or letter in parentheses
+pattern <- "\\n\\((\\d{1,2}|[a-z])\\)"
+
+# Define the pattern for amendments with numbers followed by a dot and space
+num_dot_space_pattern <- "\\d+\\.\\s"
+
+# Detect amendments that match the desired patterns (single number or letter in parentheses with a newline before it, or number dot space)
+amendments_num <- amendments_list[
+  (str_count(amendments_list, pattern) >= 2 &                     # Check if there are at least two occurrences of the pattern
+  !str_detect(amendments_list, "\\([a-z]{2}\\)") &                # Exclude amendments with pairs of letters in parentheses
+  !str_detect(amendments_list, "\\(ba\\)")) |                     # Exclude amendments specifically with "(ba)" in parentheses
+  str_detect(amendments_list, num_dot_space_pattern)              # Include amendments with number dot space pattern
+]
+
+# 2. Whenever the original text proposed by the European Commission is new, the amendment is marked by either pairs of letters together or pairs of letters separated by a space. We reduce noise by excluding deleted amendments or anything between parenthesis that doesn't match what we specify
+
+# Matches any text within parentheses
+any_parentheses_pattern <- "\\(.*?\\)"
+#Matches the word "delete"
+delete_pattern <- "\\bdelete\\b"
+
+# Filter the amendments_list
+amendments_no_num <- amendments_list[
+  (
+    (!str_detect(amendments_list, "\\n\\((\\d|[a-z])\\)") |         # Include amendments that do not match the single number or letter pattern
+    str_detect(amendments_list, "\\([a-z] [a-z]\\)") |              # Include amendments with a space-separated pair of letters in parentheses
+    str_detect(amendments_list, "\\([a-z]{2}\\)") |                 # Include amendments with pairs of letters in parentheses
+    str_detect(amendments_list, "\\(ba\\)") |                       # Include amendments with "(ba)" in parentheses
+    !str_detect(amendments_list, num_dot_space_pattern))            # Exclude amendments with number dot space pattern
+  ) & 
+  str_detect(amendments_list, any_parentheses_pattern) &            # Exclude elements without any parentheses
+  !str_detect(amendments_list, delete_pattern)                      # Exclude elements containing the word "delete"
+]
+
+# View the results
+amendments_num
+amendments_no_num %>% tail(2000)
+
+# Extract information from each text: Amendments and authors
+# Extract the amendment number
+amendment_number <- str_extract(amendments_num, "Amendment \\d+")
+  
+  # Extract the authors by matching text between "Amendment <number>" and "Proposal for a regulation"
+authors <- str_extract(amendments_num, "(?s)Amendment \\d+\\n(.*?)\\nProposal for a regulation")
+authors <- str_replace(authors, "(?s)Amendment \\d+\\n", "")              # Remove "Amendment <number>" from the extracted text
+authors <- str_replace(authors, "\\nProposal for a regulation", "")       # Remove "Proposal for a regulation" from the extracted text
+  
+#Split between original and amended text
+
+# Define the combined pattern for splitting by "\n(number or letter in parentheses)" or "number dot space"
+split_pattern <- "(?<=\n)\\((?:[0-9]{1,2}|[a-z])\\)|(?<=\\d)\\.\\s"
+
+# Apply the split pattern
+texts <- str_split(amendments_num, split_pattern, simplify = TRUE)
+
+# Extract proposed and amended texts, and storing the results in a new data frame called amendments_df.
+for (i in 1:nrow(texts)) {
+  # Extract the current row
+  current_text <- texts[i,]
+  
+  # Initialize proposed and amended texts as NA
+  text_proposed <- NA
+  text_amended <- NA
+  
+  # Check the length of the current row and process accordingly
+  if (length(current_text) > 2) {
+    text_proposed <- current_text[2]  # The proposed text is the second element of the split
+    
+    # Combine all elements from the third to the end to form the amended text
+    text_amended <- paste(current_text[3:length(current_text)], collapse = " ")
+  }
+  
+  # Append the results to the lists
+  proposed_list[[i]] <- text_proposed
+  amended_list[[i]] <- text_amended
+  }
+  
+  # Return a data frame with the extracted information
+amendments_df <- data.frame(
+    Amendment_Number = amendment_number,   # Amendment number
+    Authors = str_trim(authors),           # Trim whitespace from authors
+    Text_Proposed = unlist(proposed_list), # Trim whitespace from proposed text
+    Text_Amended = unlist(amended_list), # Trim whitespace from amended text
+    stringsAsFactors = FALSE               # Prevent conversion of strings to factors
+  )
+
+
+# It's possible to apply this cleaning through a function. Let's do it for second group of amendments adding new texts
+extract_info_no_num <- function(text) {
+  # Extract the amendment number
+  amendment_number <- str_extract(text, "Amendment \\d+")
+  
+  # Extract the authors by matching text between "Amendment <number>" and "Proposal for a regulation"
+  authors <- str_extract(text, "(?s)Amendment \\d+\\n(.*?)\\nProposal for a regulation")
+  authors <- str_replace(authors, "(?s)Amendment \\d+\\n", "")              # Remove "Amendment <number>" from the extracted text
+  authors <- str_replace(authors, "\\nProposal for a regulation", "")       # Remove "Proposal for a regulation" from the extracted text
+  
+  # Extract the text amended by matching everything after "Text proposed by the Commission Amendment\n"
+  text_amended <- str_extract(text, "(?s)Text proposed by the Commission Amendment\\n.*")
+  text_amended <- str_replace(text_amended, "Text proposed by the Commission Amendment\\n", "") # Remove the leading identifier
+
+  # Return a data frame with the extracted information
+  data.frame(
+    Amendment_Number = amendment_number,  # Amendment number
+    Authors = str_trim(authors),          # Trim whitespace from authors
+    Text_Proposed = NA,                   # No proposed text in this case
+    Text_Amended = text_amended,          # Set Text_Amended based on the condition
+    stringsAsFactors = FALSE              # Prevent conversion of strings to factors
+  )
+}
+
+# Apply the function to each amendment
+amendments_info_no_num <- lapply(amendments_no_num, extract_info_no_num)
+
+# Combine the results from amendments_info_no_num into a single data frame
+amendments_df2 <- do.call(rbind, amendments_info_no_num)
+
+# Combine the two data frames  into a single one
+combined_amendments_df <- rbind(amendments_df, amendments_df2)
+
+# Clean the content of the data frame
+cleaned_amendments_df <- combined_amendments_df %>%
+  mutate(
+    Authors = str_replace_all(Authors, "\\\\n", " "), # Replace all occurrences of "\\n" in the Authors column with a space
+    Text_Amended = str_replace_all(Text_Amended, "\\n", " "), # Replace all occurrences of "\n" in the Text_Amended column with a space
+    Authors = str_replace(Authors, "(PE\\d+.*?EN\\s*)|(AM\\\\.*?EN\\s*)", ""), # Remove specific patterns like PE12345...EN and AM...EN in the Authors column
+    Authors = str_replace(Authors, "\\.docx.*", ""), # Remove .docx and everything that follows in the Authors column
+    Authors = str_replace_all(Authors, "\\n", " "), # Replace all newline characters with a space in the Authors column
+    Text_Proposed = str_replace_all(Text_Proposed, "\\n", " "), # Replace all newline characters with a space in the Text_Proposed column
+    Authors = str_replace_all(Authors, " EN", ""), # Remove " EN" in the Authors column
+    Authors = str_replace(Authors, "(?i)(on behalf.*$)", ""), # Remove any text starting with "on behalf" (case insensitive) in the Authors column
+    Text_Amended = str_replace_all(Text_Amended, "(AM\\\\.*?EN\\s*)|(AM\\\\.*?\\.docx)|PE\\d+\\.\\d+v\\d+-\\d+|(PE\\d+.*?EN\\s*)|Or\\. fr\\s*|Or\\. en\\s*|\\.docx \\d+/\\d+\\s*|\\.docx EN\\s*|(European Council, Special meeting).*|(Council Framework Decision  ).*|\\\\n", "") # Clean the Text_Amended column by removing various unwanted patterns
+  )
+
+cleaned_amendments_df 
+
+
+# Many texts are not correctly captured because of the page break in the original pdf, the common pattern all of these have is that they don't end up with a dot at the end. In some cases, instead of dots we encountered a semicolon character, the word Comission or a number at the end of the text.
+
+check_dot <- function(text) {
+  # Eliminate any occurrences of "NA" at the end of the text
+  cleaned_text <- gsub("\\s(NA\\s?){1,3}", " ", text)
+
+  # Trim leading and trailing spaces
+  trimmed_text <- trimws(cleaned_text)
+  
+  # Check if the text ends with a period, semicolon, or "Commission"
+if (grepl("\\.$|;$|EN$|Commission$|\\b\\d+(\\.\\d+)?\\b$", trimmed_text))
+   {
+    return(trimmed_text)
+  } else {
+    return(NA)
+  }
+}
+
+
+# Now we extract and reassign the wrong parts of the Text_Amended column back to Text_Proposed based on an specific pattern: number/number or EN until we match a "dot + <space> + lowercase"
+
+  # Step 1: Include everything until number/number or EN
+  mutate(
+    Text_Amended_Part1 = ifelse(!grepl("\\.$", Text_Proposed),  # If Text_Proposed doesn't end with "."
+                                str_extract(Text_Amended, ".*?(?=(\\b\\d+/\\d+\\b|EN|$))"),  # Extract from start to number/number or "EN"
+                                Text_Amended),  # Otherwise, keep Text_Amended as is
+    Text_Amended_Part1 = str_squish(Text_Amended_Part1)  # Squish whitespace
+  ) %>%
+  # Step 2: Exclude everything between number/number or EN and . <space> lowercase
+  mutate(
+    Text_Amended_Part2 = ifelse(!grepl("\\.$", Text_Proposed),  # If Text_Proposed doesn't end with "."
+                                str_extract(Text_Amended, "(\\b\\d+/\\d+\\b|EN)(.*?)(\\.\\s[a-z].*|$)"),  # Extract between number/number or EN and ". <space> lowercase"
+                                NA),  # Otherwise, NA
+    Text_Amended_Part2 = str_squish(Text_Amended_Part2)  # Squish whitespace
+  ) %>%
+  # Step 3: Include everything that goes after . <space> lowercase
+  mutate(
+    Text_Amended_Part3 = ifelse(!grepl("\\.$", Text_Proposed),  # If Text_Proposed doesn't end with "."
+                                str_extract(Text_Amended, "(\\.\\s[a-z].*)"),  # Extract from ". <space> lowercase" to end
+                                Text_Amended),  # Otherwise, keep Text_Amended as is
+    Text_Amended_Part3 = str_squish(Text_Amended_Part3)  # Squish whitespace
+  ) %>%
+  # Step 4: Combine parts 1 and 3
+  mutate(
+    Text_Amended = paste(Text_Amended_Part1, Text_Amended_Part3, sep = " "),  # Combine Part 1 and Part 3 with a space separator
+    Text_Proposed = ifelse(!is.na(Text_Amended_Part2), paste(Text_Proposed, Text_Amended_Part2, sep = " "), Text_Proposed)  # Append Part 2 to Text_Proposed if Part 2 is not NA
+  ) %>%
+  select(-Text_Amended_Part1, -Text_Amended_Part2, -Text_Amended_Part3)  # Remove intermediate columns
+
+cleaned_amendments_df1
+
+#Save cleaned_amendments_df. We will use this df at the end, by now we will just need the Text_Amended and Text_Proposed data to compare it with the Stakeholders' data
+write.csv(cleaned_amendments_df, file = "cleaned_amendments_df1.csv", row.names = FALSE)
+
+# Extract the Text_Amended column as a list, remove NA values, remove extra whitespace, and remove NAs at the end of the text
+cleaned_amendments <- cleaned_amendments_df1 %>%
+  pull(Text_Amended) %>%     # Pull the Text_Amended column
+  na.omit() %>%              # Remove NA values
+  str_squish() %>%           # Remove extra whitespace from the text
+  str_replace_all(" NA$", "")  # Remove NA at the end of the text
+
+# Remove specific elements that were not correctly processed and add noise to our results
+cleaned_amendments <- cleaned_amendments[-c(5502, 5245, 4538, 5502, 4396, 5556, 2409, 4395)]
+
+# Extract the Text_Proposed column as a list, remove NA values, and remove extra whitespace
+cleaned_proposit <- cleaned_amendments_df1 %>%
+  pull(Text_Proposed) %>% # Pull the Text_Proposed column
+  na.omit() %>%           # Remove NA values
+  str_squish() %>%
+  str_replace_all(" NA$", "")
+```
+
+
+# Pre-processing of Stakeholders' Texts
+```{r}
+# Load the Stakeholders positions 
+pdf_file <- c("SAZKAGroupa.s..pdf",  "DINDeutschesInstitutfürNormunge.V..pdf", "UNIEuropa.pdf", "TheFederationofFinnishEnterprises.pdf", "GermanTradeUnionConfederationDGB.pdf", "Medtech&PharmaPlatformAssociation.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "ETSI .pdf", "NorwegianOpenAILab.pdf", "EURALARM.pdf", "RELX.pdf", "EuropeanHospitalandHealthcareFederation.pdf", "FinansDanmark.pdf", "EuroGeographics.pdf", "CivilLibertiesUnionforEurope.pdf", "RadiocommunicationsAgencyAgentschapTelecomNL.pdf", "EuropeanAssociationofCommunicationsAgencies.pdf", "Google.pdf", "PharmaceuticalGroupoftheEuropeanUnion.pdf", "MEDEF.pdf", "ČMOSPŠ.pdf", "FIM.pdf", "EuropeanAssociationofCo-operativeBanks.pdf", "Commissionnationaleconsultativedesdroitsdel'homme.pdf","Mastercard.pdf", "Sky.pdf","Equifax.pdf", "CenterforDataInnovation.pdf", "EuropeanTechAlliance.pdf", "SIEMENSAG.pdf", "BlackBerry.pdf", "EuropeanCenterforNot-For-ProfitLawStichting.pdf", "Numeum.pdf", "StandardChartered.pdf", "CIOPlatformNederland.pdf","APPLiA.pdf", "Eurocities.pdf", "ACPR.pdf", "UKInformationCommissioner'sOffice.pdf", "EUCOPE.pdf","DeepMind.pdf", "FranceIndustrie.pdf", "EuropeanAutomobileManufacturersAssociation.pdf", "Engine.pdf", "CenterforAIandDigitalPolicy.csv", "GFII.pdf", "Eurosmart.pdf", "ORANGE.pdf", "EITHealth.pdf", "CentreforInformationPolicyLeadership.pdf", "Agoria.pdf", "SecureIdentityAlliance.pdf", "TheInformationAccountabilityFoundation.pdf", "EuropeanFederationofPharmaceuticalIndustriesandAssociations.pdf", "ResMed.pdf", "IDEMIA.pdf", "ETUCE.pdf", "STM.pdf", "HoffmannLaRoche.pdf", "etami.pdf", "Negotia.pdf", "IntesaSanpaolo.pdf", "EuropeanTradeUnionCommitteeforEducation.pdf", "AllianceforInternetofThingsInnovation.pdf", "ItalianBankingAssociation.pdf", "FederationofGermanConsumerOrganisations(vzbv).pdf", "AmericanPropertyCasualtyInsuranceAssociation.pdf", "Ethical&AccountableDigitalSociety(LEADS)Lab,UniversityofBirmingham.pdf", "SOCIETEGENERALE.pdf")
+
+pdf_file2 <- c("Glovo.pdf",  "ZwiązekPracodawcówBusiness&SciencePoland.pdf", "BEUC-TheEuropeanConsumerOrganisation.pdf","Splunk.pdf", "ThinkTech,e.V..pdf", "MerckKGaA.pdf", "SEMIEUROPE.pdf", "LibertyGlobal.pdf", "MediasetItaliaS.p.A..pdf", "RenaissanceNumérique.pdf", "EuropeTechnologyPolicyCommitteeoftheAssociationforComputingMachinery.pdf", "BMW.pdf", "AssociationofTestPublishers.pdf", "BitsofFreedom.pdf", "AccessNowEurope.pdf", "AssociationofGermanChambersofIndustryandCommerce.pdf", "NovartisInternationalAG.pdf", "Assuralia.pdf", "E.ONSE.pdf", "KMDAS.pdf", "SellaGroup.pdf", "SPECTARISe.V..pdf", "GermanMedicalTechnologyAssociation.pdf", "MoveEU.pdf", "ConsumerTechnologyAssociation.pdf", "Fujitsu.pdf","TheElectronicPrivacyInformationCenter.pdf", "DeutscheBörseGroup.pdf", "Johnson&Johnson.pdf", "KULeuvenCentreforITandIPLaw.pdf", "IntelCorporation.pdf", "SmallBusinessStandards.pdf", "AssociationoftheEuropeanSelf-CareIndustry.pdf", "AI4Belgium.pdf", "ThibaultHELLEPUTTE.pdf", "Twilio.pdf", "GlobalDigitalFoundation.pdf", "GermanBankingIndustryCommittee.pdf", "ArtificialIntelligenceAssociationofLithuania.pdf", "VolkswagenAG.pdf", "EnelSpA.pdf", "ZVEIe.V..pdf", "StandingCommitteeofEuropeanDoctors.pdf", "MojePaństwoFoundation.pdf", "EuropeanPatients'Forum.pdf", "MedTechEurope.pdf", "BSATheSoftwareAlliance.pdf", "AssociationofFinancialMarketsinEurope.pdf", "ITI,InformationTechnologyIndustryCouncil.pdf", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.pdf", "JapanBusinessCouncilinEurope.pdf", "FederationofGermanIndustries.pdf", "Onfido.pdf",  "FutureofLifeInstitute(FLI).pdf", "HoganLovellsInternationalLLP.pdf", "EuropeanEdtechAlliance.pdf", "ParisEUROPLACE.pdf", "TrilateralResearch.pdf", "MicrosoftCorporation.pdf", "DigitalTherapeuticsAlliance.pdf", "OpenForumEurope.pdf", "Beltug.pdf", "Nokia.pdf", "BVI.pdf", "Medtronicplc.pdf",  "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "HåkanBurden.pdf", "AmericanChamberofCommercetotheEuropeanUnion(AmCham EU).pdf", "MinistryofLocalGovernmentandModernisation.pdf")
+
+pdf_file3 <- c("EuropeanSocietyofRadiology.pdf", "eco-VerbandderInternetwirtschafte.V..pdf", "OpenAI.pdf", "Workday.pdf", "EuropeanDigitalRights.pdf", "SAP.pdf", "industriAllEuropeanTradeUnion.pdf", "COV(ChristelijkOnderwijzersverbond).pdf", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.pdf", "5RightsFoundation.pdf", "ACT|TheAppAssociation.pdf", "Thorn.pdf", "ETSI.pdf", "Bitkome.V..pdf", "EuropeanTestPublishersGroup.pdf", "Data,AIandRoboticsaisbl.pdf", "BILSweden.pdf", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf", "Laboratoirenationaldemétrologieetd'essais.pdf", "NetherlandsNormalisationInstitute.pdf", "AstraZeneca.pdf", "ConfederationofSwedishEnterprise.pdf", "AWAlgorithmWatchgGmbH.pdf", "DevelopersAlliance.pdf", "VDMA.pdf", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).pdf", "NEC.pdf", "EuropeanSavingsandRetailBankingGroup.pdf", "ThePolishConfederationLewiatan.pdf", "EuropeanDIGITALSMEAlliance.pdf", "OpenFutureFoundation.pdf", "WomeninAIAustria.pdf", "techUK.pdf", "EuropeanEvangelicalAlliance.pdf", "SHERPAProject.pdf", "Philips.pdf", "UnipolGruppoS.p.A..pdf", "ImpactAI.pdf", "CroatianAIAssociation.pdf", "GlobalLegalEntityIdentifierFoundation.pdf", "LinkedIn.pdf", "CFE-CGC.pdf",  "KIBundesverbande.V..pdf", "EuropeanAIForum.pdf", "FacebookIrelandLimited.pdf", "ABB.pdf", "TheFutureSociety.pdf", "TechnologyIndustriesofFinland.pdf", "IBM.pdf", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.pdf", "FédérationFrançaisedel'Assurance.pdf", "5GAutomotiveAssociation.pdf","ClimateChangeAI.pdf", "JohnerInstitutGmbH.pdf", "AvaazFoundation.pdf", "ALLAI.pdf", "BETTERFINANCE.pdf", "DIGITALEUROPE.pdf", "AmnestyInternational.pdf", "GettyImages.pdf", "WorldEmploymentConfederation.pdf", "USChamberofCommerce.pdf", "ConfederationofLaboratoriesforAIResearchinEurope.pdf", "FairTrials.pdf", "CrowdStrike.pdf", "DigitalCourage.pdf", "AIAustria.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "SiemensEnergy.csv", "SiemensHealthineers.pdf")
+
+# Read and extract each PDF file 
+for (pdf_fil in pdf_file) {
+  # Read the PDF file into a text vector
+  pdf_text <- pdftools::pdf_text(pdf_fil)
+  
+  # Write the text vector to a CSV file
+  write.csv(pdf_text, file = paste0(tools::file_path_sans_ext(pdf_fil), ".csv"), row.names = FALSE)
+}
+
+for (pdf_fil in pdf_file2) {
+  pdf_text <- pdftools::pdf_text(pdf_fil)
+  write.csv(pdf_text, file = paste0(tools::file_path_sans_ext(pdf_fil), ".csv"), row.names = FALSE)
+}
+
+for (pdf_fil in pdf_file3) {
+  pdf_text <- pdftools::pdf_text(pdf_fil)
+  write.csv(pdf_text, file = paste0(tools::file_path_sans_ext(pdf_fil), ".csv"), row.names = FALSE)
+}
+
+# Read each .csv file
+csv_file <- c("SAZKAGroupa.s..pdf.csv",  "DINDeutschesInstitutfürNormunge.V..pdf.csv", "UNIEuropa.csv", "TheFederationofFinnishEnterprises.csv", "GermanTradeUnionConfederationDGB.csv", "Medtech&PharmaPlatformAssociation.csv", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "ETSI .csv", "NorwegianOpenAILab.csv", "EURALARM.csv", "RELX.csv", "EuropeanHospitalandHealthcareFederation.csv", "FinansDanmark.csv", "EuroGeographics.csv", "CivilLibertiesUnionforEurope.csv", "RadiocommunicationsAgencyAgentschapTelecomNL.csv", "EuropeanAssociationofCommunicationsAgencies.csv", "Google.csv", "PharmaceuticalGroupoftheEuropeanUnion.csv", "MEDEF.csv", "ČMOSPŠ.csv", "FIM.csv", "EuropeanAssociationofCo-operativeBanks.csv", "Commissionnationaleconsultativedesdroitsdel'homme.csv","Mastercard.csv", "Sky.csv","Equifax.csv", "CenterforAIandDigitalPolicy.csv", "CenterforDataInnovation.csv", "EuropeanTechAlliance.csv", "SIEMENSAG.csv", "BlackBerry.csv", "EuropeanCenterforNot-For-ProfitLawStichting.csv", "Numeum.csv", "StandardChartered.csv", "CIOPlatformNederland.csv","APPLiA.csv", "Eurocities.csv", "ACPR.csv", "UKInformationCommissioner'sOffice.csv", "EUCOPE.csv","DeepMind.csv", "FranceIndustrie.csv", "EuropeanAutomobileManufacturersAssociation.csv", "Engine.csv", "GFII.csv", "Eurosmart.csv", "ORANGE.csv", "EITHealth.csv", "CentreforInformationPolicyLeadership.csv", "Agoria.csv", "SecureIdentityAlliance.csv", "TheInformationAccountabilityFoundation.csv", "EuropeanFederationofPharmaceuticalIndustriesandAssociations.csv", "ResMed.csv", "IDEMIA.csv", "ETUCE.csv", "STM.csv", "HoffmannLaRoche.csv", "etami.csv", "Negotia.csv", "IntesaSanpaolo.csv", "EuropeanTradeUnionCommitteeforEducation.csv", "AllianceforInternetofThingsInnovation.csv", "ItalianBankingAssociation.csv", "FederationofGermanConsumerOrganisations(vzbv).csv", "SOCIETEGENERALE.csv")
+  
+num_csv_files <- sum(grepl("\\.csv$", csv_file2))
+num_csv_files
+
+
+csv_file2 <- c("Glovo.csv",  "ZwiązekPracodawcówBusiness&SciencePoland.csv", "BEUC-TheEuropeanConsumerOrganisation.csv","Splunk.csv", "ThinkTech,e.V..pdf.csv", "MerckKGaA.csv", "SEMIEUROPE.csv", "LibertyGlobal.csv", "MediasetItaliaS.p.A..pdf.csv", "RenaissanceNumérique.csv", "EuropeTechnologyPolicyCommitteeoftheAssociationforComputingMachinery.csv", "BMW.csv", "AssociationofTestPublishers.csv", "BitsofFreedom.csv", "AccessNowEurope.csv", "AssociationofGermanChambersofIndustryandCommerce.csv", "NovartisInternationalAG.csv", "Assuralia.csv", "E.ONSE.csv", "KMDAS.csv", "SellaGroup.csv", "SPECTARISe.V..pdf.csv", "GermanMedicalTechnologyAssociation.csv", "MoveEU.csv", "ConsumerTechnologyAssociation.csv", "Fujitsu.csv","TheElectronicPrivacyInformationCenter.csv", "DeutscheBörseGroup.csv", "Johnson&Johnson.csv", "KULeuvenCentreforITandIPLaw.csv", "IntelCorporation.csv", "SmallBusinessStandards.csv", "AssociationoftheEuropeanSelf-CareIndustry.csv", "AI4Belgium.csv", "ThibaultHELLEPUTTE.csv", "Twilio.csv", "GlobalDigitalFoundation.csv", "GermanBankingIndustryCommittee.csv", "ArtificialIntelligenceAssociationofLithuania.csv", "VolkswagenAG.csv", "EnelSpA.csv", "ZVEIe.V..pdf.csv", "StandingCommitteeofEuropeanDoctors.csv", "MojePaństwoFoundation.csv", "EuropeanPatients'Forum.csv", "MedTechEurope.csv", "BSATheSoftwareAlliance.csv", "AssociationofFinancialMarketsinEurope.csv", "ITI,InformationTechnologyIndustryCouncil.csv", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.csv", "JapanBusinessCouncilinEurope.csv", "FederationofGermanIndustries.csv", "Onfido.csv",  "FutureofLifeInstitute(FLI).csv", "HoganLovellsInternationalLLP.csv", "EuropeanEdtechAlliance.csv", "ParisEUROPLACE.csv", "TrilateralResearch.csv", "MicrosoftCorporation.csv", "DigitalTherapeuticsAlliance.csv", "OpenForumEurope.csv", "Beltug.csv", "Nokia.csv", "BVI.csv", "Medtronicplc.csv",  "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "HåkanBurden.csv", "AmericanChamberofCommercetotheEuropeanUnion(AmCham EU).pdf", "MinistryofLocalGovernmentandModernisation.csv")
+
+csv_file3 <- c("EuropeanSocietyofRadiology.csv", "eco-VerbandderInternetwirtschafte.V..pdf.csv", "OpenAI.csv", "Workday.csv", "EuropeanDigitalRights.csv", "SAP.csv", "industriAllEuropeanTradeUnion.csv", "COV(ChristelijkOnderwijzersverbond).csv", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.csv", "5RightsFoundation.csv", "ACT|TheAppAssociation.csv", "Thorn.csv", "ETSI.csv", "Bitkome.V..pdf.csv", "EuropeanTestPublishersGroup.csv", "Data,AIandRoboticsaisbl.csv", "BILSweden.csv", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf.csv", "Laboratoirenationaldemétrologieetd'essais.csv", "NetherlandsNormalisationInstitute.csv", "AstraZeneca.csv", "ConfederationofSwedishEnterprise.csv", "AWAlgorithmWatchgGmbH.csv", "DevelopersAlliance.csv", "VDMA.csv", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).csv", "NEC.csv", "EuropeanSavingsandRetailBankingGroup.csv", "ThePolishConfederationLewiatan.csv", "EuropeanDIGITALSMEAlliance.csv", "OpenFutureFoundation.csv", "WomeninAIAustria.csv", "techUK.csv", "EuropeanEvangelicalAlliance.csv", "SHERPAProject.csv", "Philips.csv", "UnipolGruppoS.p.A..pdf.csv", "ImpactAI.csv", "CroatianAIAssociation.csv", "GlobalLegalEntityIdentifierFoundation.csv", "LinkedIn.csv", "CFE-CGC.csv",  "KIBundesverbande.V..pdf.csv", "EuropeanAIForum.csv", "FacebookIrelandLimited.csv", "ABB.csv", "TheFutureSociety.csv", "TechnologyIndustriesofFinland.csv", "IBM.csv", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.csv", "FédérationFrançaisedel'Assurance.csv", "5GAutomotiveAssociation.csv","ClimateChangeAI.csv", "JohnerInstitutGmbH.csv", "AvaazFoundation.csv", "ALLAI.csv", "BETTERFINANCE.csv", "DIGITALEUROPE.csv", "AmnestyInternational.csv", "GettyImages.csv", "WorldEmploymentConfederation.csv", "USChamberofCommerce.csv", "ConfederationofLaboratoriesforAIResearchinEurope.csv", "FairTrials.csv", "CrowdStrike.csv", "DigitalCourage.csv", "AIAustria.csv", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "SiemensEnergy.csv", "SiemensHealthineers.csv")
+
+
+# Define a function to process each csv into a list of texts
+process_csv <- function(file_name) {
+  # Read the lines from the CSV file
+  lines <- readLines(file_name)
+  
+  # Split the lines into sublists whenever an empty line is encountered
+  sublists <- split(lines, cumsum(lines == ""))
+  
+  # Initialize an empty list to store the concatenated sublists
+  concatenated_sublists <- list()
+  
+  # Loop over each sublist
+  for (i in seq_along(sublists)) {
+    # Concatenate the lines of text in the current sublist into a single string
+    concatenated_sublist <- paste(sublists[[i]], collapse = " ")
+    
+    # Append the concatenated sublist to the list of concatenated sublists
+    concatenated_sublists[[i]] <- concatenated_sublist
+  }
+  
+  # Return the concatenated sublists as a single character vector
+  return(unlist(concatenated_sublists))
+}
+
+# Combine all CSV file names into a single vector
+all_csv_files <- c(csv_file, csv_file2, csv_file3)
+
+# Create an empty list to store the results
+results_list <- list()
+
+# Loop over each CSV file in the csv_files vector
+for (file_name in all_csv_files) {
+  # Apply the function
+  result <- process_csv(file_name)
+  
+  # Extract the name of the CSV file without the extension
+  name <- gsub(".csv$", "", file_name)
+  
+  # Store the result in a variable with a specific format
+  assign(paste0(name, "_df"), result)
+  
+  # Append the result to the list of results
+  results_list[[name]] <- result
+}
+
+# List of documents
+sublist_names <- names(results_list)
+sublist_names
+
+
+# Define a function to clean the texts
+remove_excessive_spaces_and_empty_strings <- function(x) {
+  # Remove excessive spaces between words
+  x <- str_replace_all(x, "\\s+", " ")
+  
+  # Remove empty strings
+  x <- x[!is.na(x) & x != ""]
+  
+  # Return the result
+  return(x)
+}
+
+# Clean each element in results_list using the function
+results_list <- lapply(results_list, remove_excessive_spaces_and_empty_strings)
+
+
+```
+# Merging all Texts
+```{r}
+# Include the amendments and original AI Act texts so these can be compared with Stakeholders' recommendations
+results_list[["cleaned_amendments"]] <- cleaned_amendments
+results_list[["cleaned_proposit"]] <- cleaned_proposit
+
+# We can access to any element of the cleaned_amendments list
+results_list[["cleaned_amendments"]][51]
+
+# In order to use LSH we must create a directory for the text corpus
+dir.create("directoryAI.1.7")
+
+# Loop over each data frame in the results_list
+for (i in seq_along(results_list)) {
+  # Loop over each line in the current dataframe
+  for (j in seq_along(results_list[[i]])) {
+    
+     #Check if the line has less than 50 characters
+    if (nchar(results_list[[i]][j]) < 50) {
+      next  # Skip the current iteration and continue with the next line
+      }
+    
+    # Create a file name for the current line
+    file_name <- paste0(names(results_list)[i], "_line_", j, ".txt")
+    
+    # Write the current line to a separate text file in the directory
+    writeLines(results_list[[i]][j], file.path("directoryAI.1.7", file_name))
+  }
+}
+```
+
+# Application of Smith-Waterman Algorithm: LSH and MinHash 
+```{r}
+# Set this to use more CPU cores for parallel processing
+options(mc.cores = 6L) 
+
+# Generate a MinHash function with 50 hash functions. A higher number means more accurate similarity detection but it is more computationally intensive. We use 50 because our texts are short and we have many of them, balancing accuracy and computation.
+ats_minhash3 <- minhash_generator(n = 50, seed = 344)  
+
+# Use 5-grams for tokenization. Unigrams (n=1) are for general text comparison, bigrams (n=2) capture some context, trigrams (n=3) or higher capture more context. We use 5-grams to prioritize context while reducing the number of comparisons to be less computationally intensive.
+ats3 <- TextReuseCorpus(dir = "directoryAI.1.7",
+                        tokenizer = tokenize_ngrams, n = 5,  
+                        minhash_func = ats_minhash3)
+
+# Perform Locality-Sensitive Hashing (LSH) with 50 bands. Higher number of bands (e.g., 50-100) reduces false positives but may miss true positives. Lower number of bands (e.g., 20-50) increases recall but may have more false positives. We choose 50 bands to balance precision and recall, as we need a reliable match for our medium-sized dataset.
+buckets3 <- lsh(ats3, bands = 25) 
+
+# Find candidate pairs of similar documents
+candidates3 <- lsh_candidates(buckets3)
+
+# Compare the candidate pairs of documents for similarity using Jaccard similarity
+matches3 <- lsh_compare(candidates3, ats3, jaccard_similarity)
+
+
+# Arrange the matches in descending order of similarity score
+matches3 %>% arrange(desc(score))
+
+write.csv(matches3, "matches3") 
+```
+
+# Refining Text Comparisons: Filtering and Rearranging to Highlight Enhanced Amendments
+```{r}
+# Filter matches between stakeholders' texts among themselves and exclude rows where both values are AI Act amended or original texts, or none of them are
+filter2.1 <- matches3 %>%
+  filter(
+    (startsWith(a, "cleaned_amendments") | startsWith(b, "cleaned_amendments") |
+     startsWith(a, "cleaned_proposit") | startsWith(b, "cleaned_proposit")) &
+    !(
+      (startsWith(a, "cleaned_proposit") & startsWith(b, "cleaned_proposit")) |
+      (startsWith(a, "cleaned_amendments") & startsWith(b, "cleaned_amendments")) |
+      ((startsWith(a, "cleaned_proposit") & startsWith(b, "cleaned_amendments")) |
+       (startsWith(a, "cleaned_amendments") & startsWith(b, "cleaned_proposit")))
+    )
+  )
+
+# Rearrange columns to keep in different columns IA Act and Stakeholder texts
+rearrange_columns <- function(a, b, score) {
+  if (grepl("^cleaned_proposit", a) || grepl("^cleaned_amendments", a)) {
+    tmp <- a
+    a <- b
+    b <- tmp
+  }
+  return(data.frame(a = a, b = b, score = score)) # Swap a and b 
+}
+
+# Apply the function
+matches_rearranged2 <- filter2.1 %>%
+  rowwise() %>%
+  do(rearrange_columns(.$a, .$b, .$score)) %>%
+  ungroup()  
+
+# Filter original text matches only
+filtered_df2 <- matches_rearranged2 %>%
+  filter(grepl("^cleaned_proposit", b)) # Keep rows with specific prefix in b
+
+
+# Filter amendments matches only
+filtered_df_fin2 <- matches_rearranged2 %>%
+  filter(grepl("^cleaned_amendments", b)) # Keep rows with specific prefix in b
+
+# Select the row with the highest score for each unique value for each stakeholder position text for each case
+result_df <- filtered_df2 %>%
+  group_by(a) %>%
+  arrange(desc(score)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(score))
+
+
+result_df_fin <- filtered_df_fin2 %>%
+  group_by(a) %>%
+  arrange(desc(score)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(score)) # Get top score rows for each unique value in a EU Comission Texts
+
+# Merge the two dataframes and calculate score differences
+merged_df <- result_df %>%
+  full_join(result_df_fin, by = "a", suffix = c("_result", "_result_fin")) %>%
+  mutate(
+    score_result = ifelse(is.na(score_result), 0, score_result),
+    score_result_fin = ifelse(is.na(score_result_fin), 0, score_result_fin),
+    score_diff = score_result_fin - score_result
+  )  
+
+# Arrange the merged dataframe
+merged_df %>%
+  arrange(desc(score_diff))  # Sort by score difference
+
+# Read and save the merged dataframe to a CSV file
+write.csv(merged_df, "merged_df") 
+```
+
+# Discussion: Analysis of Stakeholder Influence through Text Reuse Detection
+```{r}
+# Path to the file in the directory
+file_to_read3 <- "directoryAI.1/AvaazFoundation_line_184.txt"
+# Read the file into a text vector
+file_content3 <- readLines(file_to_read3) 
+print(file_content3)
+```
+
+## Objective 3: Dive into and represt the overall picture. Stakeholders, MEPs and Political Groups
+
+# Introduction and Data Preprocessing for Network Analysis
+```{r}
+# Read the CSV files containing data about MEPs and their political groups
+PP <- read.csv("PP.csv")
+SD <- read.csv("S&D.csv")
+RenewEurope <- read.csv("RenewEurope.csv")
+GREENS <- read.csv("Greens.csv")
+ECR <- read.csv("ECR.csv")
+ID <- read.csv("ID.csv")
+TheLeft <- read.csv("TheLeft.csv")
+NonAttached <- read.csv("Non-Attached.csv")
+
+# List of dataframes 
+dfs <- list(PP, SD, RenewEurope, GREENS, ECR, ID, TheLeft, NonAttached)
+
+# Combine all data frames
+combined_EU_groups <- bind_rows(dfs)
+
+# Filter and select names and their respective political groups
+filter_EU_groups <- combined_EU_groups %>%
+  select(fullName, politicalGroup) %>% # Select only the relevant columns
+  mutate(fullName = tolower(fullName)) %>% # Convert names to lowercase for consistency and further merge
+  arrange(fullName) # Arrange by full name for easier viewing
+
+# Merge 3 data sets: original and amended texts; list of Europarliamentarians' and their respective political groups; and score matches.
+
+# Eliminate NA values from the Text_Amended column and add a sequence number so that "cleaned_amendments_line_x" and the sequence match
+cleaned_amendments_df2 <- cleaned_amendments_df1[!is.na(cleaned_amendments_df1$Text_Amended), ]
+cleaned_amendments_df2$Count_Column <- seq_len(nrow(cleaned_amendments_df2))
+
+# Split the Authors column by comma, clean up spaces, and convert to lowercase
+cleaned_amendments_df3 <- cleaned_amendments_df2 %>%
+  separate_rows(Authors, sep = ",") %>%  # Split Authors by comma
+  mutate(Authors = str_squish(Authors)) %>%  # Remove extra spaces
+  mutate(Authors = tolower(Authors))  # Convert to lowercase
+
+# Merge with MEPs and their political groups data
+cleaned_amendments_df4 <- left_join(cleaned_amendments_df3, filter_EU_groups, 
+                                    by = c("Authors" = "fullName"))
+
+# Manually fix and assign Parlamentarians to political groups
+cleaned_amendments_df5 <- cleaned_amendments_df4 %>%
+  mutate(politicalGroup = case_when(
+    Authors == "adriana maldonado lópez" ~ "Group of the Progressive Alliance of Socialists and Democrats in the European Parliament",
+    Authors == "hélène laporte" ~ "Identity and Democracy Group",
+    Authors == "pernando barrena arza" ~ "The Left group in the European Parliament - GUE/NGL",
+    Authors == "nicola beer" ~ "Renew Europe Group",
+    Authors == "jan- christoph oetjen" ~ "Renew Europe Group",
+    Authors == "vlad- marius botoş" ~ "Renew Europe Group",
+    Authors == "andrea caroppo" ~ "Group of the European People's Party (Christian Democrats)",
+    Authors == "bettina vollath" ~ "Group of the Progressive Alliance of Socialists and Democrats in the European Parliament",
+    Authors == "mara bizzotto" ~ "Identity and Democracy Group",
+    Authors == "radosław sikorski" ~ "Group of the European People's Party (Christian Democrats)",
+    Authors == "krzysztof hetman" ~ "Group of the European People's Party (Christian Democrats)",
+    TRUE ~ politicalGroup  # Keep existing value if no match
+  ))
+
+# Eliminate the Text_Proposed column
+cleaned_amendments_df6 <- cleaned_amendments_df5 %>%
+  select(-Text_Proposed)
+
+# Define the function to read file content
+get_file_content <- function(file_name) {
+  file_path <- file.path("directory_AI_2.2", paste0(file_name, ".txt"))
+  if (file.exists(file_path)) {
+    return(paste(readLines(file_path), collapse = "\n"))
+  } else {
+    return(NA)
+  }
+}
+
+# Add the new columns with the file contents
+merged_df_cont <- merged_df %>%
+  mutate(
+    a_content = sapply(a, get_file_content),
+    b_content = sapply(b_result_fin, get_file_content)
+  )
+
+# Filter merged_df_cont to keep rows where score_diff is positive
+filtered_merged_df_cont <- merged_df_cont %>%
+  filter(score_diff > 0)
+
+# Eliminate specific columns from the filtered merged dataframe
+merged_df_cont1 <- filtered_merged_df_cont %>%
+  select(-b_result, -score_result, -a_content, -b_content)
+
+
+
+# 3. Modify the "b_result_fin" column to keep only the numeric part
+merged_df_cont2 <- merged_df_cont1 %>%
+  mutate(b_result_fin = as.integer(gsub("cleaned_amendments_line_", "", b_result_fin)))
+
+# 4. Perform a right join on cleaned_amendments_df5 and merged_df_cont by Count_Column and b_result_fin
+final_df <- right_join(cleaned_amendments_df6, merged_df_cont2, by = c("Count_Column" = "b_result_fin"))
+final_df %>% distinct(Authors, politicalGroup)
+```
+# Network Visualization
+```{r}
+
+# Filter edges with total_score_diff >= 0.1 and drop NA
+filtered_edges <- final_df_processed %>%
+  na.omit() %>%  # Remove rows with NA
+  filter(total_score_diff >= 0.05) %>%  # Filter edges with score >= 0.1
+  select(Stakeholder, Authors, total_score_diff) %>%
+  rename(from = Stakeholder, to = Authors)
+
+# Get unique Stakeholders and Authors with connections
+connected_nodes <- union(filtered_edges$from, filtered_edges$to)
+
+# Filter nodes to include only Stakeholders with connections
+filtered_nodes <- final_df_processed %>%
+  na.omit() %>%  # Remove rows with NA
+  filter(Stakeholder %in% connected_nodes | Authors %in% connected_nodes) %>%
+  select(Stakeholder, Authors, politicalGroup) %>%
+  distinct() %>%
+  pivot_longer(cols = c(Stakeholder, Authors), names_to = "type", values_to = "name") %>%
+  distinct()
+
+# Map original political group names to abbreviated names
+political_group_mapping <- c(
+  "European Conservatives and Reformists Group" = "ECR",
+  "Group of the European People's Party (Christian Democrats)" = "PP",
+  "Group of the Progressive Alliance of Socialists and Democrats in the European Parliament" = "S&D",
+  "Renew Europe Group" = "Renew",
+  "The Left group in the European Parliament - GUE/NGL" = "Left",
+  "Non-attached Members" = "NAM",
+  "Group of the Greens/European Free Alliance" = "Greens",
+  "Identity and Democracy Group" = "ID"
+)
+
+# Add political group colors with abbreviated names
+political_group_colors <- c(
+  "ECR" = "darkblue",
+  "PP" = "lightblue",
+  "S&D" = "red",
+  "Renew" = "orange",
+  "Left" = "violet",
+  "NAM" = "grey",
+  "Greens" = "green",
+  "ID" = "yellow"
+)
+
+# Assign political group colors to nodes
+filtered_nodes <- filtered_nodes %>%
+  mutate(
+    politicalGroup = political_group_mapping[politicalGroup],
+    color = ifelse(type == "Stakeholder", "black", political_group_colors[politicalGroup])
+  )
+
+# Create the graph object with filtered nodes and edges
+graph <- tbl_graph(nodes = filtered_nodes, edges = filtered_edges, directed = FALSE)
+
+# Remove isolated nodes (nodes without any edges)
+graph <- graph %>%
+  activate(nodes) %>%
+  filter(!node_is_isolated())
+
+# Data frame for the legend
+legend_data <- data.frame(
+  politicalGroup = names(political_group_colors),
+  color = political_group_colors,
+  stringsAsFactors = FALSE
+)
+
+# Create a custom legend as a separate plot
+legend_plot <- ggplot(legend_data, aes(x = 1, y = reorder(politicalGroup, seq_along(politicalGroup)))) +
+  geom_point(aes(color = color), size = 4) +
+  geom_text(aes(label = politicalGroup), hjust = -0.5, vjust = 0.5, size = 3, color = "black") +  # Adjust hjust, vjust, size, and color
+  scale_color_identity() +
+  theme_void() +
+  theme(legend.position = "none",
+        plot.margin = margin(0, 0, 0, 0))
+
+# Plot the graph with improved readability
+graph_plot <- ggraph(graph, layout = 'fr') +
+  geom_edge_link(aes(width = total_score_diff), alpha = 0.8, color = "grey") +
+  geom_node_point(aes(color = color), size = 3) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 2, max.overlaps = 400) +  # Adjust size and max.overlaps
+  scale_edge_width(range = c(0.1, 2), guide = 'none') +  # Remove edge width legend
+  scale_color_identity() +
+  theme_void() +
+  theme(plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+
+# Combine the graph plot and the legend using patchwork
+combined_plot <- graph_plot + legend_plot + plot_layout(widths = c(4, 1))
+
+# Draw the combined plot
+print(combined_plot)
+```
+
