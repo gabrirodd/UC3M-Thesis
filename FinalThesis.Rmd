@@ -489,7 +489,6 @@ for (file_name in all_csv_files) {
 
 # List of documents
 sublist_names <- names(results_list)
-sublist_names
 
 
 # Define a function to clean the texts
@@ -667,6 +666,7 @@ NonAttached <- read.csv("Non-Attached.csv")
 
 # List of dataframes 
 dfs <- list(PP, SD, RenewEurope, GREENS, ECR, ID, TheLeft, NonAttached)
+dfs
 
 # Combine all data frames
 combined_EU_groups <- bind_rows(dfs)
@@ -676,12 +676,14 @@ filter_EU_groups <- combined_EU_groups %>%
   select(fullName, politicalGroup) %>% # Select only the relevant columns
   mutate(fullName = tolower(fullName)) %>% # Convert names to lowercase for consistency and further merge
   arrange(fullName) # Arrange by full name for easier viewing
+filter_EU_groups
 
 # Merge 3 data sets: original and amended texts; list of Europarliamentarians' and their respective political groups; and score matches.
 
 # Eliminate NA values from the Text_Amended column and add a sequence number so that "cleaned_amendments_line_x" and the sequence match
 cleaned_amendments_df2 <- cleaned_amendments_df1[!is.na(cleaned_amendments_df1$Text_Amended), ]
 cleaned_amendments_df2$Count_Column <- seq_len(nrow(cleaned_amendments_df2))
+cleaned_amendments_df2
 
 # Split the Authors column by comma, clean up spaces, and convert to lowercase
 cleaned_amendments_df3 <- cleaned_amendments_df2 %>%
@@ -716,7 +718,7 @@ cleaned_amendments_df6 <- cleaned_amendments_df5 %>%
 
 # Define the function to read file content
 get_file_content <- function(file_name) {
-  file_path <- file.path("directory_AI_2.2", paste0(file_name, ".txt"))
+  file_path <- file.path("directoryAI.1.8", paste0(file_name, ".txt"))
   if (file.exists(file_path)) {
     return(paste(readLines(file_path), collapse = "\n"))
   } else {
@@ -724,12 +726,14 @@ get_file_content <- function(file_name) {
   }
 }
 
+
 # Add the new columns with the file contents
 merged_df_cont <- merged_df %>%
   mutate(
     a_content = sapply(a, get_file_content),
     b_content = sapply(b_result_fin, get_file_content)
   )
+
 
 # Filter merged_df_cont to keep rows where score_diff is positive
 filtered_merged_df_cont <- merged_df_cont %>%
@@ -739,23 +743,44 @@ filtered_merged_df_cont <- merged_df_cont %>%
 merged_df_cont1 <- filtered_merged_df_cont %>%
   select(-b_result, -score_result, -a_content, -b_content)
 
-
-
-# 3. Modify the "b_result_fin" column to keep only the numeric part
+# Modify the "b_result_fin" column to keep only the numeric part
 merged_df_cont2 <- merged_df_cont1 %>%
   mutate(b_result_fin = as.integer(gsub("cleaned_amendments_line_", "", b_result_fin)))
+merged_df_cont2
+cleaned_amendments_df6
 
-# 4. Perform a right join on cleaned_amendments_df5 and merged_df_cont by Count_Column and b_result_fin
+# Perform a right join on cleaned_amendments_df5 and merged_df_cont by Count_Column and b_result_fin
 final_df <- right_join(cleaned_amendments_df6, merged_df_cont2, by = c("Count_Column" = "b_result_fin"))
+
 final_df %>% distinct(Authors, politicalGroup)
 ```
 # Network Visualization
 ```{r}
+library(tidygraph)
+library(ggraph)
+library(patchwork)
+
+# Process the dataframe
+final_df_processed <- final_df %>%
+  # Rename column 'a' to 'Stakeholder'
+  rename(Stakeholder = a) %>%
+  # Remove the trailing '_line_XXX' from 'Stakeholder' column
+  mutate(Stakeholder = sub("_line_\\d+$", "", Stakeholder)) %>%
+  # Select and eliminate specified columns while keeping 'politicalGroup'
+  select(-Text_Amended, -Amendment_Number, -score_result_fin, -Count_Column) %>%
+  # Summarize the data by 'Stakeholder', 'Authors', and 'politicalGroup', summing 'score_diff'
+  group_by(Stakeholder, Authors, politicalGroup) %>%
+  summarise(total_score_diff = sum(score_diff, na.rm = TRUE), .groups = 'drop') %>% 
+  # Remove rows where total_score_diff is lower than 0.3
+  filter(total_score_diff >= 0.2) %>%
+  # Drop NA values if there are any
+  na.omit()
+
 
 # Filter edges with total_score_diff >= 0.1 and drop NA
 filtered_edges <- final_df_processed %>%
   na.omit() %>%  # Remove rows with NA
-  filter(total_score_diff >= 0.05) %>%  # Filter edges with score >= 0.1
+  filter(total_score_diff >= 0.05) %>%  # Filter edges with score >= 0.05
   select(Stakeholder, Authors, total_score_diff) %>%
   rename(from = Stakeholder, to = Authors)
 
