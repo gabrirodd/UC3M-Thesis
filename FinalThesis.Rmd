@@ -149,7 +149,6 @@ tetragram_tf_idf
 
 # 1. Pre-processing of Amended Texts 
 ```{r}
-install.packages("tabulapdf", repos = c("https://ropensci.r-universe.dev", "https://cloud.r-project.org"))
 library(tabulapdf)
 
 # List of PDF filenames containing amendments
@@ -247,6 +246,10 @@ split_pattern <- "(?<=\n)\\((?:[0-9]{1,2}|[a-z])\\)|(?<=\\d)\\.\\s"
 
 # Apply the split pattern
 texts <- str_split(amendments_num, split_pattern, simplify = TRUE)
+
+# Create an empty list to store the results
+proposed_list <- list()
+amended_list <- list()
 
 # Extract proposed and amended texts, and storing the results in a new data frame called amendments_df.
 for (i in 1:nrow(texts)) {
@@ -350,7 +353,7 @@ if (grepl("\\.$|;$|EN$|Commission$|\\b\\d+(\\.\\d+)?\\b$", trimmed_text))
 
 
 # Now we extract and reassign the wrong parts of the Text_Amended column back to Text_Proposed based on an specific pattern: number/number or EN until we match a "dot + <space> + lowercase"
-
+cleaned_amendments_df1 <- cleaned_amendments_df %>%
   # Step 1: Include everything until number/number or EN
   mutate(
     Text_Amended_Part1 = ifelse(!grepl("\\.$", Text_Proposed),  # If Text_Proposed doesn't end with "."
@@ -379,10 +382,10 @@ if (grepl("\\.$|;$|EN$|Commission$|\\b\\d+(\\.\\d+)?\\b$", trimmed_text))
   ) %>%
   select(-Text_Amended_Part1, -Text_Amended_Part2, -Text_Amended_Part3)  # Remove intermediate columns
 
-cleaned_amendments_df1
+
 
 #Save cleaned_amendments_df. We will use this df at the end, by now we will just need the Text_Amended and Text_Proposed data to compare it with the Stakeholders' data
-write.csv(cleaned_amendments_df, file = "cleaned_amendments_df1.csv", row.names = FALSE)
+write.csv(cleaned_amendments_df1, file = "cleaned_amendments_df1.csv", row.names = FALSE)
 
 # Extract the Text_Amended column as a list, remove NA values, remove extra whitespace, and remove NAs at the end of the text
 cleaned_amendments <- cleaned_amendments_df1 %>%
@@ -406,11 +409,11 @@ cleaned_proposit <- cleaned_amendments_df1 %>%
 # Pre-processing of Stakeholders' Texts
 ```{r}
 # Load the Stakeholders positions 
-pdf_file <- c("SAZKAGroupa.s..pdf",  "DINDeutschesInstitutfürNormunge.V..pdf", "UNIEuropa.pdf", "TheFederationofFinnishEnterprises.pdf", "GermanTradeUnionConfederationDGB.pdf", "Medtech&PharmaPlatformAssociation.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "ETSI .pdf", "NorwegianOpenAILab.pdf", "EURALARM.pdf", "RELX.pdf", "EuropeanHospitalandHealthcareFederation.pdf", "FinansDanmark.pdf", "EuroGeographics.pdf", "CivilLibertiesUnionforEurope.pdf", "RadiocommunicationsAgencyAgentschapTelecomNL.pdf", "EuropeanAssociationofCommunicationsAgencies.pdf", "Google.pdf", "PharmaceuticalGroupoftheEuropeanUnion.pdf", "MEDEF.pdf", "ČMOSPŠ.pdf", "FIM.pdf", "EuropeanAssociationofCo-operativeBanks.pdf", "Commissionnationaleconsultativedesdroitsdel'homme.pdf","Mastercard.pdf", "Sky.pdf","Equifax.pdf", "CenterforDataInnovation.pdf", "EuropeanTechAlliance.pdf", "SIEMENSAG.pdf", "BlackBerry.pdf", "EuropeanCenterforNot-For-ProfitLawStichting.pdf", "Numeum.pdf", "StandardChartered.pdf", "CIOPlatformNederland.pdf","APPLiA.pdf", "Eurocities.pdf", "ACPR.pdf", "UKInformationCommissioner'sOffice.pdf", "EUCOPE.pdf","DeepMind.pdf", "FranceIndustrie.pdf", "EuropeanAutomobileManufacturersAssociation.pdf", "Engine.pdf", "CenterforAIandDigitalPolicy.csv", "GFII.pdf", "Eurosmart.pdf", "ORANGE.pdf", "EITHealth.pdf", "CentreforInformationPolicyLeadership.pdf", "Agoria.pdf", "SecureIdentityAlliance.pdf", "TheInformationAccountabilityFoundation.pdf", "EuropeanFederationofPharmaceuticalIndustriesandAssociations.pdf", "ResMed.pdf", "IDEMIA.pdf", "ETUCE.pdf", "STM.pdf", "HoffmannLaRoche.pdf", "etami.pdf", "Negotia.pdf", "IntesaSanpaolo.pdf", "EuropeanTradeUnionCommitteeforEducation.pdf", "AllianceforInternetofThingsInnovation.pdf", "ItalianBankingAssociation.pdf", "FederationofGermanConsumerOrganisations(vzbv).pdf", "AmericanPropertyCasualtyInsuranceAssociation.pdf", "Ethical&AccountableDigitalSociety(LEADS)Lab,UniversityofBirmingham.pdf", "SOCIETEGENERALE.pdf")
+pdf_file <- c("SAZKAGroupa.s..pdf",  "DINDeutschesInstitutfürNormunge.V..pdf", "UNIEuropa.pdf", "TheFederationofFinnishEnterprises.pdf", "GermanTradeUnionConfederationDGB.pdf", "Medtech&PharmaPlatformAssociation.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "ETSI .pdf", "NorwegianOpenAILab.pdf", "EURALARM.pdf", "RELX.pdf", "EuropeanHospitalandHealthcareFederation.pdf", "FinansDanmark.pdf", "EuroGeographics.pdf", "CivilLibertiesUnionforEurope.pdf", "RadiocommunicationsAgencyAgentschapTelecomNL.pdf", "EuropeanAssociationofCommunicationsAgencies.pdf", "Google.pdf", "PharmaceuticalGroupoftheEuropeanUnion.pdf", "MEDEF.pdf", "ČMOSPŠ.pdf", "FIM.pdf", "EuropeanAssociationofCo-operativeBanks.pdf", "Commissionnationaleconsultativedesdroitsdel'homme.pdf","Mastercard.pdf", "Sky.pdf","Equifax.pdf", "CenterforDataInnovation.pdf", "EuropeanTechAlliance.pdf", "SIEMENSAG.pdf", "BlackBerry.pdf", "EuropeanCenterforNot-For-ProfitLawStichting.pdf", "Numeum.pdf", "StandardChartered.pdf", "CIOPlatformNederland.pdf","APPLiA.pdf", "Eurocities.pdf", "ACPR.pdf", "UKInformationCommissioner'sOffice.pdf", "EUCOPE.pdf","DeepMind.pdf", "FranceIndustrie.pdf", "EuropeanAutomobileManufacturersAssociation.pdf", "Engine.pdf", "CenterforAIandDigitalPolicy.pdf", "GFII.pdf", "Eurosmart.pdf", "ORANGE.pdf", "EITHealth.pdf", "CentreforInformationPolicyLeadership.pdf", "Agoria.pdf", "SecureIdentityAlliance.pdf", "TheInformationAccountabilityFoundation.pdf", "EuropeanFederationofPharmaceuticalIndustriesandAssociations.pdf", "ResMed.pdf", "IDEMIA.pdf", "ETUCE.pdf", "STM.pdf", "HoffmannLaRoche.pdf", "etami.pdf", "Negotia.pdf", "IntesaSanpaolo.pdf", "EuropeanTradeUnionCommitteeforEducation.pdf", "AllianceforInternetofThingsInnovation.pdf", "ItalianBankingAssociation.pdf", "FederationofGermanConsumerOrganisations(vzbv).pdf", "AmericanPropertyCasualtyInsuranceAssociation.pdf", "SOCIETEGENERALE.pdf")
 
 pdf_file2 <- c("Glovo.pdf",  "ZwiązekPracodawcówBusiness&SciencePoland.pdf", "BEUC-TheEuropeanConsumerOrganisation.pdf","Splunk.pdf", "ThinkTech,e.V..pdf", "MerckKGaA.pdf", "SEMIEUROPE.pdf", "LibertyGlobal.pdf", "MediasetItaliaS.p.A..pdf", "RenaissanceNumérique.pdf", "EuropeTechnologyPolicyCommitteeoftheAssociationforComputingMachinery.pdf", "BMW.pdf", "AssociationofTestPublishers.pdf", "BitsofFreedom.pdf", "AccessNowEurope.pdf", "AssociationofGermanChambersofIndustryandCommerce.pdf", "NovartisInternationalAG.pdf", "Assuralia.pdf", "E.ONSE.pdf", "KMDAS.pdf", "SellaGroup.pdf", "SPECTARISe.V..pdf", "GermanMedicalTechnologyAssociation.pdf", "MoveEU.pdf", "ConsumerTechnologyAssociation.pdf", "Fujitsu.pdf","TheElectronicPrivacyInformationCenter.pdf", "DeutscheBörseGroup.pdf", "Johnson&Johnson.pdf", "KULeuvenCentreforITandIPLaw.pdf", "IntelCorporation.pdf", "SmallBusinessStandards.pdf", "AssociationoftheEuropeanSelf-CareIndustry.pdf", "AI4Belgium.pdf", "ThibaultHELLEPUTTE.pdf", "Twilio.pdf", "GlobalDigitalFoundation.pdf", "GermanBankingIndustryCommittee.pdf", "ArtificialIntelligenceAssociationofLithuania.pdf", "VolkswagenAG.pdf", "EnelSpA.pdf", "ZVEIe.V..pdf", "StandingCommitteeofEuropeanDoctors.pdf", "MojePaństwoFoundation.pdf", "EuropeanPatients'Forum.pdf", "MedTechEurope.pdf", "BSATheSoftwareAlliance.pdf", "AssociationofFinancialMarketsinEurope.pdf", "ITI,InformationTechnologyIndustryCouncil.pdf", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.pdf", "JapanBusinessCouncilinEurope.pdf", "FederationofGermanIndustries.pdf", "Onfido.pdf",  "FutureofLifeInstitute(FLI).pdf", "HoganLovellsInternationalLLP.pdf", "EuropeanEdtechAlliance.pdf", "ParisEUROPLACE.pdf", "TrilateralResearch.pdf", "MicrosoftCorporation.pdf", "DigitalTherapeuticsAlliance.pdf", "OpenForumEurope.pdf", "Beltug.pdf", "Nokia.pdf", "BVI.pdf", "Medtronicplc.pdf",  "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "HåkanBurden.pdf", "AmericanChamberofCommercetotheEuropeanUnion(AmCham EU).pdf", "MinistryofLocalGovernmentandModernisation.pdf")
 
-pdf_file3 <- c("EuropeanSocietyofRadiology.pdf", "eco-VerbandderInternetwirtschafte.V..pdf", "OpenAI.pdf", "Workday.pdf", "EuropeanDigitalRights.pdf", "SAP.pdf", "industriAllEuropeanTradeUnion.pdf", "COV(ChristelijkOnderwijzersverbond).pdf", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.pdf", "5RightsFoundation.pdf", "ACT|TheAppAssociation.pdf", "Thorn.pdf", "ETSI.pdf", "Bitkome.V..pdf", "EuropeanTestPublishersGroup.pdf", "Data,AIandRoboticsaisbl.pdf", "BILSweden.pdf", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf", "Laboratoirenationaldemétrologieetd'essais.pdf", "NetherlandsNormalisationInstitute.pdf", "AstraZeneca.pdf", "ConfederationofSwedishEnterprise.pdf", "AWAlgorithmWatchgGmbH.pdf", "DevelopersAlliance.pdf", "VDMA.pdf", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).pdf", "NEC.pdf", "EuropeanSavingsandRetailBankingGroup.pdf", "ThePolishConfederationLewiatan.pdf", "EuropeanDIGITALSMEAlliance.pdf", "OpenFutureFoundation.pdf", "WomeninAIAustria.pdf", "techUK.pdf", "EuropeanEvangelicalAlliance.pdf", "SHERPAProject.pdf", "Philips.pdf", "UnipolGruppoS.p.A..pdf", "ImpactAI.pdf", "CroatianAIAssociation.pdf", "GlobalLegalEntityIdentifierFoundation.pdf", "LinkedIn.pdf", "CFE-CGC.pdf",  "KIBundesverbande.V..pdf", "EuropeanAIForum.pdf", "FacebookIrelandLimited.pdf", "ABB.pdf", "TheFutureSociety.pdf", "TechnologyIndustriesofFinland.pdf", "IBM.pdf", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.pdf", "FédérationFrançaisedel'Assurance.pdf", "5GAutomotiveAssociation.pdf","ClimateChangeAI.pdf", "JohnerInstitutGmbH.pdf", "AvaazFoundation.pdf", "ALLAI.pdf", "BETTERFINANCE.pdf", "DIGITALEUROPE.pdf", "AmnestyInternational.pdf", "GettyImages.pdf", "WorldEmploymentConfederation.pdf", "USChamberofCommerce.pdf", "ConfederationofLaboratoriesforAIResearchinEurope.pdf", "FairTrials.pdf", "CrowdStrike.pdf", "DigitalCourage.pdf", "AIAustria.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "SiemensEnergy.csv", "SiemensHealthineers.pdf")
+pdf_file3 <- c("EuropeanSocietyofRadiology.pdf", "eco-VerbandderInternetwirtschafte.V..pdf", "OpenAI.pdf", "Workday.pdf", "EuropeanDigitalRights.pdf", "SAP.pdf", "industriAllEuropeanTradeUnion.pdf", "COV(ChristelijkOnderwijzersverbond).pdf", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.pdf", "5RightsFoundation.pdf", "ACT|TheAppAssociation.pdf", "Thorn.pdf", "ETSI.pdf", "Bitkome.V..pdf", "EuropeanTestPublishersGroup.pdf", "Data,AIandRoboticsaisbl.pdf", "BILSweden.pdf", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf", "Laboratoirenationaldemétrologieetd'essais.pdf", "NetherlandsNormalisationInstitute.pdf", "AstraZeneca.pdf", "ConfederationofSwedishEnterprise.pdf", "AWAlgorithmWatchgGmbH.pdf", "DevelopersAlliance.pdf", "VDMA.pdf", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).pdf", "NEC.pdf", "EuropeanSavingsandRetailBankingGroup.pdf", "ThePolishConfederationLewiatan.pdf", "EuropeanDIGITALSMEAlliance.pdf", "OpenFutureFoundation.pdf", "WomeninAIAustria.pdf", "techUK.pdf", "EuropeanEvangelicalAlliance.pdf", "SHERPAProject.pdf", "Philips.pdf", "UnipolGruppoS.p.A..pdf", "ImpactAI.pdf", "CroatianAIAssociation.pdf", "GlobalLegalEntityIdentifierFoundation.pdf", "LinkedIn.pdf", "CFE-CGC.pdf",  "KIBundesverbande.V..pdf", "EuropeanAIForum.pdf", "FacebookIrelandLimited.pdf", "ABB.pdf", "TheFutureSociety.pdf", "TechnologyIndustriesofFinland.pdf", "IBM.pdf", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.pdf", "FédérationFrançaisedel'Assurance.pdf", "5GAutomotiveAssociation.pdf","ClimateChangeAI.pdf", "AvaazFoundation.pdf", "ALLAI.pdf", "BETTERFINANCE.pdf", "DIGITALEUROPE.pdf", "AmnestyInternational.pdf", "GettyImages.pdf", "WorldEmploymentConfederation.pdf", "USChamberofCommerce.pdf", "ConfederationofLaboratoriesforAIResearchinEurope.pdf", "FairTrials.pdf", "CrowdStrike.pdf", "DigitalCourage.pdf", "AIAustria.pdf", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.pdf", "SiemensEnergy.pdf", "SiemensHealthineers.pdf")
 
 # Read and extract each PDF file 
 for (pdf_fil in pdf_file) {
@@ -433,14 +436,10 @@ for (pdf_fil in pdf_file3) {
 
 # Read each .csv file
 csv_file <- c("SAZKAGroupa.s..pdf.csv",  "DINDeutschesInstitutfürNormunge.V..pdf.csv", "UNIEuropa.csv", "TheFederationofFinnishEnterprises.csv", "GermanTradeUnionConfederationDGB.csv", "Medtech&PharmaPlatformAssociation.csv", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "ETSI .csv", "NorwegianOpenAILab.csv", "EURALARM.csv", "RELX.csv", "EuropeanHospitalandHealthcareFederation.csv", "FinansDanmark.csv", "EuroGeographics.csv", "CivilLibertiesUnionforEurope.csv", "RadiocommunicationsAgencyAgentschapTelecomNL.csv", "EuropeanAssociationofCommunicationsAgencies.csv", "Google.csv", "PharmaceuticalGroupoftheEuropeanUnion.csv", "MEDEF.csv", "ČMOSPŠ.csv", "FIM.csv", "EuropeanAssociationofCo-operativeBanks.csv", "Commissionnationaleconsultativedesdroitsdel'homme.csv","Mastercard.csv", "Sky.csv","Equifax.csv", "CenterforAIandDigitalPolicy.csv", "CenterforDataInnovation.csv", "EuropeanTechAlliance.csv", "SIEMENSAG.csv", "BlackBerry.csv", "EuropeanCenterforNot-For-ProfitLawStichting.csv", "Numeum.csv", "StandardChartered.csv", "CIOPlatformNederland.csv","APPLiA.csv", "Eurocities.csv", "ACPR.csv", "UKInformationCommissioner'sOffice.csv", "EUCOPE.csv","DeepMind.csv", "FranceIndustrie.csv", "EuropeanAutomobileManufacturersAssociation.csv", "Engine.csv", "GFII.csv", "Eurosmart.csv", "ORANGE.csv", "EITHealth.csv", "CentreforInformationPolicyLeadership.csv", "Agoria.csv", "SecureIdentityAlliance.csv", "TheInformationAccountabilityFoundation.csv", "EuropeanFederationofPharmaceuticalIndustriesandAssociations.csv", "ResMed.csv", "IDEMIA.csv", "ETUCE.csv", "STM.csv", "HoffmannLaRoche.csv", "etami.csv", "Negotia.csv", "IntesaSanpaolo.csv", "EuropeanTradeUnionCommitteeforEducation.csv", "AllianceforInternetofThingsInnovation.csv", "ItalianBankingAssociation.csv", "FederationofGermanConsumerOrganisations(vzbv).csv", "SOCIETEGENERALE.csv")
-  
-num_csv_files <- sum(grepl("\\.csv$", csv_file2))
-num_csv_files
-
 
 csv_file2 <- c("Glovo.csv",  "ZwiązekPracodawcówBusiness&SciencePoland.csv", "BEUC-TheEuropeanConsumerOrganisation.csv","Splunk.csv", "ThinkTech,e.V..pdf.csv", "MerckKGaA.csv", "SEMIEUROPE.csv", "LibertyGlobal.csv", "MediasetItaliaS.p.A..pdf.csv", "RenaissanceNumérique.csv", "EuropeTechnologyPolicyCommitteeoftheAssociationforComputingMachinery.csv", "BMW.csv", "AssociationofTestPublishers.csv", "BitsofFreedom.csv", "AccessNowEurope.csv", "AssociationofGermanChambersofIndustryandCommerce.csv", "NovartisInternationalAG.csv", "Assuralia.csv", "E.ONSE.csv", "KMDAS.csv", "SellaGroup.csv", "SPECTARISe.V..pdf.csv", "GermanMedicalTechnologyAssociation.csv", "MoveEU.csv", "ConsumerTechnologyAssociation.csv", "Fujitsu.csv","TheElectronicPrivacyInformationCenter.csv", "DeutscheBörseGroup.csv", "Johnson&Johnson.csv", "KULeuvenCentreforITandIPLaw.csv", "IntelCorporation.csv", "SmallBusinessStandards.csv", "AssociationoftheEuropeanSelf-CareIndustry.csv", "AI4Belgium.csv", "ThibaultHELLEPUTTE.csv", "Twilio.csv", "GlobalDigitalFoundation.csv", "GermanBankingIndustryCommittee.csv", "ArtificialIntelligenceAssociationofLithuania.csv", "VolkswagenAG.csv", "EnelSpA.csv", "ZVEIe.V..pdf.csv", "StandingCommitteeofEuropeanDoctors.csv", "MojePaństwoFoundation.csv", "EuropeanPatients'Forum.csv", "MedTechEurope.csv", "BSATheSoftwareAlliance.csv", "AssociationofFinancialMarketsinEurope.csv", "ITI,InformationTechnologyIndustryCouncil.csv", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.csv", "JapanBusinessCouncilinEurope.csv", "FederationofGermanIndustries.csv", "Onfido.csv",  "FutureofLifeInstitute(FLI).csv", "HoganLovellsInternationalLLP.csv", "EuropeanEdtechAlliance.csv", "ParisEUROPLACE.csv", "TrilateralResearch.csv", "MicrosoftCorporation.csv", "DigitalTherapeuticsAlliance.csv", "OpenForumEurope.csv", "Beltug.csv", "Nokia.csv", "BVI.csv", "Medtronicplc.csv",  "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "HåkanBurden.csv", "AmericanChamberofCommercetotheEuropeanUnion(AmCham EU).pdf", "MinistryofLocalGovernmentandModernisation.csv")
 
-csv_file3 <- c("EuropeanSocietyofRadiology.csv", "eco-VerbandderInternetwirtschafte.V..pdf.csv", "OpenAI.csv", "Workday.csv", "EuropeanDigitalRights.csv", "SAP.csv", "industriAllEuropeanTradeUnion.csv", "COV(ChristelijkOnderwijzersverbond).csv", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.csv", "5RightsFoundation.csv", "ACT|TheAppAssociation.csv", "Thorn.csv", "ETSI.csv", "Bitkome.V..pdf.csv", "EuropeanTestPublishersGroup.csv", "Data,AIandRoboticsaisbl.csv", "BILSweden.csv", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf.csv", "Laboratoirenationaldemétrologieetd'essais.csv", "NetherlandsNormalisationInstitute.csv", "AstraZeneca.csv", "ConfederationofSwedishEnterprise.csv", "AWAlgorithmWatchgGmbH.csv", "DevelopersAlliance.csv", "VDMA.csv", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).csv", "NEC.csv", "EuropeanSavingsandRetailBankingGroup.csv", "ThePolishConfederationLewiatan.csv", "EuropeanDIGITALSMEAlliance.csv", "OpenFutureFoundation.csv", "WomeninAIAustria.csv", "techUK.csv", "EuropeanEvangelicalAlliance.csv", "SHERPAProject.csv", "Philips.csv", "UnipolGruppoS.p.A..pdf.csv", "ImpactAI.csv", "CroatianAIAssociation.csv", "GlobalLegalEntityIdentifierFoundation.csv", "LinkedIn.csv", "CFE-CGC.csv",  "KIBundesverbande.V..pdf.csv", "EuropeanAIForum.csv", "FacebookIrelandLimited.csv", "ABB.csv", "TheFutureSociety.csv", "TechnologyIndustriesofFinland.csv", "IBM.csv", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.csv", "FédérationFrançaisedel'Assurance.csv", "5GAutomotiveAssociation.csv","ClimateChangeAI.csv", "JohnerInstitutGmbH.csv", "AvaazFoundation.csv", "ALLAI.csv", "BETTERFINANCE.csv", "DIGITALEUROPE.csv", "AmnestyInternational.csv", "GettyImages.csv", "WorldEmploymentConfederation.csv", "USChamberofCommerce.csv", "ConfederationofLaboratoriesforAIResearchinEurope.csv", "FairTrials.csv", "CrowdStrike.csv", "DigitalCourage.csv", "AIAustria.csv", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "SiemensEnergy.csv", "SiemensHealthineers.csv")
+csv_file3 <- c("EuropeanSocietyofRadiology.csv", "eco-VerbandderInternetwirtschafte.V..pdf.csv", "OpenAI.csv", "Workday.csv", "EuropeanDigitalRights.csv", "SAP.csv", "industriAllEuropeanTradeUnion.csv", "COV(ChristelijkOnderwijzersverbond).csv", "FederalMinistryforSocialAffairs,Health,CareandConsumerProtection.csv", "5RightsFoundation.csv", "ACT|TheAppAssociation.csv", "Thorn.csv", "ETSI.csv", "Bitkome.V..pdf.csv", "EuropeanTestPublishersGroup.csv", "Data,AIandRoboticsaisbl.csv", "BILSweden.csv", "GesamtverbandderDeutschenVersicherungswirtschafte. V..pdf.csv", "Laboratoirenationaldemétrologieetd'essais.csv", "NetherlandsNormalisationInstitute.csv", "AstraZeneca.csv", "ConfederationofSwedishEnterprise.csv", "AWAlgorithmWatchgGmbH.csv", "DevelopersAlliance.csv", "VDMA.csv", "JapanElectronicsandInformationTechnologyIndustriesAssociation(JEITA).csv", "NEC.csv", "EuropeanSavingsandRetailBankingGroup.csv", "ThePolishConfederationLewiatan.csv", "EuropeanDIGITALSMEAlliance.csv", "OpenFutureFoundation.csv", "WomeninAIAustria.csv", "techUK.csv", "EuropeanEvangelicalAlliance.csv", "SHERPAProject.csv", "Philips.csv", "UnipolGruppoS.p.A..pdf.csv", "ImpactAI.csv", "CroatianAIAssociation.csv", "GlobalLegalEntityIdentifierFoundation.csv", "LinkedIn.csv", "CFE-CGC.csv",  "KIBundesverbande.V..pdf.csv", "EuropeanAIForum.csv", "FacebookIrelandLimited.csv", "ABB.csv", "TheFutureSociety.csv", "TechnologyIndustriesofFinland.csv", "IBM.csv", "FederationofCraftBusinessesintheautomotivesectorandinmobilityservices.csv", "FédérationFrançaisedel'Assurance.csv", "5GAutomotiveAssociation.csv","ClimateChangeAI.csv", "AvaazFoundation.csv", "ALLAI.csv", "BETTERFINANCE.csv", "DIGITALEUROPE.csv", "AmnestyInternational.csv", "GettyImages.csv", "WorldEmploymentConfederation.csv", "USChamberofCommerce.csv", "ConfederationofLaboratoriesforAIResearchinEurope.csv", "FairTrials.csv", "CrowdStrike.csv", "DigitalCourage.csv", "AIAustria.csv", "EuropeanCoordinationCommitteeoftheRadiological,ElectromedicalandhealthcareITIndustry.csv", "SiemensEnergy.csv", "SiemensHealthineers.csv")
 
 
 # Define a function to process each csv into a list of texts
@@ -508,9 +507,9 @@ remove_excessive_spaces_and_empty_strings <- function(x) {
 # Clean each element in results_list using the function
 results_list <- lapply(results_list, remove_excessive_spaces_and_empty_strings)
 
-
 ```
-# Merging all Texts
+
+# Merging Stakeholders and EU Texts
 ```{r}
 # Include the amendments and original AI Act texts so these can be compared with Stakeholders' recommendations
 results_list[["cleaned_amendments"]] <- cleaned_amendments
@@ -520,7 +519,7 @@ results_list[["cleaned_proposit"]] <- cleaned_proposit
 results_list[["cleaned_amendments"]][51]
 
 # In order to use LSH we must create a directory for the text corpus
-dir.create("directoryAI.1.7")
+dir.create("directoryAI.1.8")
 
 # Loop over each data frame in the results_list
 for (i in seq_along(results_list)) {
@@ -536,7 +535,7 @@ for (i in seq_along(results_list)) {
     file_name <- paste0(names(results_list)[i], "_line_", j, ".txt")
     
     # Write the current line to a separate text file in the directory
-    writeLines(results_list[[i]][j], file.path("directoryAI.1.7", file_name))
+    writeLines(results_list[[i]][j], file.path("directoryAI.1.8", file_name))
   }
 }
 ```
@@ -550,7 +549,7 @@ options(mc.cores = 6L)
 ats_minhash3 <- minhash_generator(n = 50, seed = 344)  
 
 # Use 5-grams for tokenization. Unigrams (n=1) are for general text comparison, bigrams (n=2) capture some context, trigrams (n=3) or higher capture more context. We use 5-grams to prioritize context while reducing the number of comparisons to be less computationally intensive.
-ats3 <- TextReuseCorpus(dir = "directoryAI.1.7",
+ats3 <- TextReuseCorpus(dir = "directoryAI.1.8",
                         tokenizer = tokenize_ngrams, n = 5,  
                         minhash_func = ats_minhash3)
 
@@ -570,7 +569,7 @@ matches3 %>% arrange(desc(score))
 write.csv(matches3, "matches3") 
 ```
 
-# Refining Text Comparisons: Filtering and Rearranging to Highlight Enhanced Amendments
+# Refining Text Comparisons: Filtering best matches
 ```{r}
 # Filter matches between stakeholders' texts among themselves and exclude rows where both values are AI Act amended or original texts, or none of them are
 filter2.1 <- matches3 %>%
@@ -646,10 +645,10 @@ write.csv(merged_df, "merged_df")
 # Discussion: Analysis of Stakeholder Influence through Text Reuse Detection
 ```{r}
 # Path to the file in the directory
-file_to_read3 <- "directoryAI.1/AvaazFoundation_line_184.txt"
+file_to_read <- "directoryAI.1.8/AvaazFoundation_line_184.txt"
 # Read the file into a text vector
-file_content3 <- readLines(file_to_read3) 
-print(file_content3)
+file_content <- readLines(file_to_read) 
+print(file_content)
 ```
 
 ## Objective 3: Dive into and represt the overall picture. Stakeholders, MEPs and Political Groups
